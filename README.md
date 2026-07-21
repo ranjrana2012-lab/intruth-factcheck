@@ -1,6 +1,6 @@
 beta out @ https://intruth-beta.vercel.app/
 
-source bias tags from MBFC dataset
+source bias tags from MBFC dataset @ https://raw.githubusercontent.com/idiap/Factual-Reporting-and-Political-Bias-Web-Interactions/main/data/mbfc.csv
 
 hi everyone!
 
