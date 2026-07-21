@@ -1,8 +1,7 @@
 // service-worker.js
 let ANTHROPIC_KEY = '';
 let TRANSCRIPT_LANGUAGE = 'en';
-const BACKEND_URL = 'https://intruth-backend.vercel.app';
-
+const BACKEND_URL = '';
 
 async function loadKeys() {
   return new Promise(resolve => {
@@ -15,8 +14,6 @@ async function loadKeys() {
 }
 
 const EVALUATE_PROMPT = ``
-
-
 const GROUNDED_PROMPT = ``
 
 const SPEAKER_PARSE_NOISE = new Set(['debate','presidential','vp','vice','2024','2023','2022','2021','2020','2019','2016','surrounded','tonight','live','full','official']);
@@ -72,20 +69,29 @@ const BLOCKED_DOMAINS = [
   'dailykos.com', 'mediamatters.org', 'motherjones.com',
   'moveon.org', 'huffpost.com', 'thenation.com', 'jacobinmag.com',
   'truthout.org', 'commondreams.org', 'alternet.org',
+  'rawstory.com', 'palmerreport.com', 'occupydemocrats.com',
+  'crooksandliars.com', 'bipartisanreport.com', 'wonkette.com',
 
   // partisan right
   'republicans.org', 'gop.com', 'ntu.org', 'heritage.org',
   'breitbart.com', 'newsmax.com', 'thefederalist.com', 'nationalreview.com',
   'dailywire.com', 'townhall.com', 'westernjournal.com',
-  'lifesitenews.com', 'oann.com', 'theblaze.com', 'americanthinker.com', 
+  'lifesitenews.com', 'oann.com', 'theblaze.com', 'americanthinker.com',
+  'dailycaller.com', 'thepostmillennial.com', 'redstate.com', 'pjmedia.com',
+  'bizpacreview.com', 'americangreatness.com', 'gellerreport.com',
+  'thepoliticalinsider.com', 'twitchy.com', 'wnd.com',
 
   // government / state media
   'gov.il', 'rt.com', 'sputniknews.com', 'xinhua.net',
-  'globaltimes.cn', 'presstv.ir', 'almayadeen.net',
+  'globaltimes.cn', 'presstv.ir', 'almayadeen.net', 'idf.il',
+  'cgtn.com', 'tass.com', 'mintpressnews.com', 'thegrayzone.com',
+  'strategic-culture.org', 'southfront.org', 'veteranstoday.com',
 
   // conspiracy / low credibility
   'infowars.com', 'naturalnews.com', 'zerohedge.com',
   'thegatewaypundit.com', 'beforeitsnews.com', 'activistpost.com',
+  'newspunch.com', 'neonnettle.com', 'worldtruth.tv',
+  'mercola.com', 'greenmedinfo.com', 'childrenshealthdefense.org',
 
   // advocacy organizations
   'ajc.org', 'cair.com', 'adl.org', 'aclu.org',
@@ -123,7 +129,7 @@ async function searchWeb(query, retries = 2) {
     const res = await fetch(`${BACKEND_URL}/api/serper`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: query, num: 6, ...(LANGUAGE_LOCALE[TRANSCRIPT_LANGUAGE] || LANGUAGE_LOCALE.en) }),
+      body: JSON.stringify({ q: query, num: 10, ...(LANGUAGE_LOCALE[TRANSCRIPT_LANGUAGE] || LANGUAGE_LOCALE.en) }),
 
     });
     const data = await res.json();
@@ -142,7 +148,7 @@ async function searchWeb(query, retries = 2) {
         }
         return true;
       })
-      .slice(0, 3)
+      .slice(0, 4)
       .map(r => ({ url: r.link, title: r.title || '', snippet: r.snippet || '', date: r.date || '' }));
 
     // answerBox — Google's direct factual answer, highest quality signal
@@ -175,7 +181,27 @@ async function searchWeb(query, retries = 2) {
 
 // ── Claude ────────────────────────────────────────────────────────────────────
 
-async function callClaude(userMessage, systemPrompt) {
+const MODEL_HAIKU  = 'claude-haiku-4-5-20251001';
+const MODEL_SONNET = 'claude-sonnet-5';
+
+// opts: { model, maxTokens, temperature }. Defaults reproduce the fast pass
+// (Haiku, 1024 tokens, temperature 0). The grounded pass overrides these to run
+// on Sonnet — which needs a larger token budget (thinking eats into it) and
+// requires temperature to be OMITTED (newer models reject the parameter). Pass
+// temperature: null to omit it.
+async function callClaude(userMessage, systemPrompt, opts = {}) {
+  const model       = opts.model     || MODEL_HAIKU;
+  const maxTokens   = opts.maxTokens || 1024;
+  const temperature = ('temperature' in opts) ? opts.temperature : 0;
+
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userMessage }],
+  };
+  if (temperature !== null && temperature !== undefined) body.temperature = temperature;
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -184,13 +210,7 @@ async function callClaude(userMessage, systemPrompt) {
       'anthropic-version':       '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
-      temperature: 0,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
-    }),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (data.error) {
@@ -199,7 +219,10 @@ async function callClaude(userMessage, systemPrompt) {
     if (activeTabId) chrome.tabs.sendMessage(activeTabId, { type: 'PIPELINE_ERROR', message: msg }).catch(() => {});
     return '';
   }
-  const raw = data.content?.[0]?.text?.trim() || '';
+  // Use the first TEXT block — newer models (sonnet-5) emit a leading `thinking`
+  // block, so content[0] is not necessarily the answer.
+  const textBlock = (data.content || []).find(b => b && b.type === 'text' && b.text);
+  const raw = (textBlock?.text || '').trim();
   return raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
 }
 
@@ -611,7 +634,13 @@ async function groundAndUpdate(contextText, fastResults, title, lexicalSummary, 
         const evidenceBlock = parts.join('\n\n');
         const raw = await callClaude(
           `${titleContext}Transcript: "${resolveDismissivePronouns(contextText, dominantSpeaker, opponentName)}"\n\nClaim: "${fastResult.claim}"\nFast verdict: ${fastResult.verdict}\n\nWeb search evidence:\n${evidenceBlock}${lexicalContext}`,
-          GROUNDED_PROMPT
+          GROUNDED_PROMPT,
+          // Grounded pass runs on Sonnet with the re-judge prompt: independently
+          // re-evaluates instead of deferring to the fast verdict. Benchmarking
+          // showed this captures ~80% of a full-Sonnet accuracy gain while the
+          // fast pass stays on Haiku (low live latency). Sonnet needs the larger
+          // token budget and temperature omitted.
+          { model: MODEL_SONNET, maxTokens: 4096, temperature: null }
         );
         const parsed = parseArray(raw);
         const match  = parsed.find(r => r.claim && r.verdict);
@@ -642,13 +671,14 @@ async function groundAndUpdate(contextText, fastResults, title, lexicalSummary, 
           || (fastResult.speaker && !fastResult.speaker.match(/^Speaker\s*\d+$/i) ? fastResult.speaker : null)
           || (match.speaker && !match.speaker.match(/^Speaker\s*\d+$/i) ? match.speaker : null);
 
-        // code-level protection: never downgrade TRUE/SUBSTANTIALLY TRUE to MISLEADING or FALSE
-        // the grounded prompt repeatedly violates this rule by reasoning from snippets
-        // fast pass has full training knowledge; grounded pass has 1-2 sentence snippets
-        // only the grounded pass can upgrade verdicts or add SUBSTANTIALLY TRUE context
-        const fastWasTrue = fastResult.verdict === 'TRUE' || fastResult.verdict === 'SUBSTANTIALLY TRUE';
-        const groundedDowngrades = match.verdict === 'MISLEADING' || match.verdict === 'FALSE';
-        const finalVerdict = (fastWasTrue && groundedDowngrades) ? fastResult.verdict : match.verdict;
+        // Removed the never-downgrade guard: benchmarking against professional
+        // fact-checkers (PolitiFact / AP / FactCheck.org / AFP) showed it drove a
+        // strong softening bias — InTruth kept a TRUE/SUBSTANTIALLY TRUE fast
+        // verdict even when web evidence contradicted it. Trusting the grounded
+        // verdict raised verdict agreement (+8pt) and the share of problematic
+        // claims flagged (+11pt) with NO increase in false-positive (harsh)
+        // errors, and FALSE precision actually rose to ~93%.
+        const finalVerdict = match.verdict;
 
         return { ...match, verdict: finalVerdict, sources: urls, pending: false, lexical: lexicalSnapshot, speaker: resolvedSpeaker, dominantSpeakerId, _fastClaim: fastResult.claim };
       } catch (err) {
