@@ -1,7 +1,7 @@
 beta out @ https://intruth-beta.vercel.app/
 
 source bias tags from MBFC dataset
------------------------------------
+
 hi everyone!
 
 https://chromewebstore.google.com/detail/InTruth/ikmpglbpcdoapfelcbfpoaddmhmaaocg?hl=en&authuser=0
