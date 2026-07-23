@@ -1,0 +1,109 @@
+# ─── Secrets (NEVER commit) ───────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+build/
+dist/
+develop
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+*.db
+*.sqlite
+*.sqlite3
+# keep the engine's data dir available but ignore its contents (DBs, models)
+services/cognitive-core/data/
+!services/cognitive-core/data/.gitkeep
+
+# ─── Node / Tauri UI ─────────────────────────────────────────────────────────
+node_modules/
+.npm/
+.pnpm-store/
+*.log
+npm-debug.log*
+apps/desktop/ui/dist/
+apps/desktop/ui/.vite/
+
+# ─── Rust / Tauri ────────────────────────────────────────────────────────────
+apps/desktop/src-tauri/target/
+**/target/
+**/*.rs.bk
+Cargo.lock
+# (keep root-level and per-workspace Cargo.lock out of git for now; revisit)
+
+# ─── Tauri build output ──────────────────────────────────────────────────────
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/WixTools/
+*.app
+*.dmg
+*.exe
+*.msi
+*.AppImage
+*.deb
+
+# ─── Expo / React Native (mobile) ────────────────────────────────────────────
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/ios/Pods/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/app/release/
+*.jks
+*.keystore
+
+# ─── Models / large artifacts ────────────────────────────────────────────────
+*.bin
+*.gguf
+*.onnx
+models/
+!mcp-servers/mcp-factcheck/data/.gitkeep
+# MBFC bias dataset is vendored as CSV (small) — allow it
+!mcp-servers/mcp-factcheck/data/mbfc.csv
+
+# ─── Editor / OS ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyproject/
+
+# ─── Captured audio / transcripts (privacy: never persist raw A/V) ───────────
+*.wav
+*.mp3
+*.aac
+*.flac
+*.ogg
+*.webm
+*.mp4
+captures/
+transcripts/
+
+# ─── Misc ────────────────────────────────────────────────────────────────────
+.cache/
+tmp/
+*.tmp

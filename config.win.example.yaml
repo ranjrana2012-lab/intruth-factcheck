@@ -1,0 +1,88 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# InTruth FactCheck — Windows x86_64 configuration template.
+# Copy to `config.win.yaml` and edit. `config.win.yaml` is gitignored.
+# ──────────────────────────────────────────────────────────────────────────────
+
+system:
+  os: windows_x86_64
+  auto_start_on_login: true                 # Tauri writes the Run registry key
+  tray_indicator_enabled: true              # un-hideable recording-state indicator
+  pause_hotkey: "Win+Alt+J"                 # global hotkey: pause/resume ALL capture
+
+# ─── Perception (Zone 1 — native capture) ───────────────────────────────────
+perception:
+  screen_capture:
+    enabled: true
+    adapter: screenpipe                     # screenpipe | mss | dxgi
+    frame_rate_fps: 0.2                     # 1 frame every 5s (adaptive; lowers on battery)
+    # Auto-pause capture when any of these window titles is foregrounded.
+    # Privacy safeguard — prevents capturing password managers / banking / private windows.
+    excluded_windows:
+      - "1Password"
+      - "Bitwarden"
+      - "KeePass"
+      - "LastPass"
+      - "Windows Security"
+      - "Password"
+      - "Banking"
+      - "Incognito"
+      - "InPrivate"
+  audio_capture:
+    enabled: true
+    adapter: wasapi_loopback                # wasapi_loopback | screenpipe | pyaudio
+    sample_rate_hz: 16000
+    microphone_enabled: true                # capture mic alongside system audio
+    vad_sensitivity: 0.5                    # Silero VAD threshold (0=loose, 1=strict)
+
+# ─── Models (Zone 2 — cognitive core) ───────────────────────────────────────
+models:
+  stt_engine:
+    provider: faster_whisper                # faster_whisper | whisper_cpp
+    model: small                            # tiny | base | small | medium | large-v3
+    device: auto                            # auto | cuda | cpu  (auto picks your GTX 1660)
+    compute_type: auto                      # int8 (cpu) | float16 (cuda)
+  llm:
+    provider: ollama_cloud                  # ollama_cloud | ollama_local | anthropic | openai
+    model: qwen2.5:7b
+    # Claim extraction uses a fast/small call; verdict synthesis can use a bigger model.
+    extraction_model: qwen2.5:7b
+    verdict_model: qwen2.5:7b
+  pii_redaction:
+    enabled: true
+    engine: presidio
+    strictness: high                        # redact before any storage or egress
+
+# ─── Verification pipeline ──────────────────────────────────────────────────
+verify:
+  retrieval_provider: tavily                # tavily | searxng | both
+  max_sources_per_claim: 4
+  block_partisan_sources: true              # port InTruth's BLOCKED_DOMAINS list
+  # Sentence windowing (ported from InTruth)
+  window_size: 4                            # sentences per evaluation window
+  window_keep: 15                           # rolling buffer length
+  claim_dedup_ms: 200000                    # 200s TTL
+  claim_overlap_threshold: 0.35             # >= this → duplicate
+  verdict_taxonomy:
+    - TRUE
+    - SUBSTANTIALLY TRUE
+    - FALSE
+    - MISLEADING
+    - UNVERIFIABLE
+
+# ─── Security & autonomy (Zone 3 — isolated MCP execution) ──────────────────
+security_and_privacy:
+  secret_store: windows_credential_manager  # via python-keyring
+  network_egress_allowlist:                 # block all egress except these
+    - "127.0.0.1:*"                         # local engine + SearXNG
+    - "api.tavily.com:443"
+    - "*.ollama.com:443"                    # Ollama Cloud
+    # add api.anthropic.com / api.openai.com only if you switch providers
+  retention:
+    raw_audio_seconds: 0                    # 0 = never persist; transcribe then discard
+    raw_screen_frames_hours: 0              # 0 = never persist
+    verdicts_days: 90                       # claims + verdicts kept this long
+  autonomy:
+    fact_checking: 1                        # Level 1: inform via toast (no approval needed)
+    browser_automation: 3                   # Level 3: requires explicit user approval
+    filesystem_write: 3                     # Level 3: requires explicit user approval
+    os_command: 4                           # Level 4: blocked unless pre-authorized workflow
