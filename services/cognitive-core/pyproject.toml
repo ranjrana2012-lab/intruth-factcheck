@@ -1,0 +1,63 @@
+[project]
+name = "intruth-engine"
+version = "0.1.0"
+description = "InTruth FactCheck cognitive core — local ASR + claim pipeline + verification orchestration"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ranjrana2012-lab" }]
+
+dependencies = [
+    # Web server + realtime transport
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "websockets>=12.0",
+    # Config + validation
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyyaml>=6.0",
+    # HTTP client (Tavily/SearXNG/Ollama)
+    "httpx>=0.27",
+    # ASR (local)
+    "faster-whisper>=1.0.3",
+    # VAD
+    "onnxruntime>=1.18",
+    # Audio capture (Windows WASAPI loopback via PyAudio fork)
+    "pyaudiowpatch>=0.2.14; sys_platform == 'win32'",
+    # Screen capture
+    "mss>=9.0",
+    # Storage
+    "sqlalchemy>=2.0",
+    "aiosqlite>=0.20",
+]
+
+[project.optional-dependencies]
+pii = [
+    # Presidio — pulled in M2 but declared here so the env is reproducible
+    "presidio-analyzer>=2.2",
+    "presidio-anonymizer>=2.2",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "httpx>=0.27", # for test client
+]
+
+[project.scripts]
+intruth-engine = "intruth_engine.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["intruth_engine"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

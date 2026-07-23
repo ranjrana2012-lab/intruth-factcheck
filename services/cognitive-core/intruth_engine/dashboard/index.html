@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>InTruth FactCheck — Engine Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #1a1d27; --text: #e4e6eb; --muted: #8b8f9a;
+    --accent: #4f9eff; --true: #3ddc84; --false: #ff5266; --misleading: #ffb340;
+    --sub-true: #8fd14f; --unverifiable: #8b8f9a; --border: #2a2e3a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px;
+  }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  h1 { font-size: 20px; font-weight: 600; }
+  h1 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); margin-right: 8px; vertical-align: middle; }
+  h1.recording .dot { background: var(--false); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .controls { display: flex; gap: 12px; align-items: center; }
+  button {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: var(--false); border-color: var(--false); color: #fff; }
+  .status { font-size: 13px; color: var(--muted); }
+  .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1400px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 14px; font-weight: 600; }
+  .feed { max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .transcript { font-size: 14px; line-height: 1.5; color: var(--text); padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .transcript .src { font-size: 11px; color: var(--muted); margin-right: 8px; text-transform: uppercase; }
+  .transcript .ts { font-size: 11px; color: var(--muted); float: right; }
+  .verdict-card { padding: 12px; border-radius: 8px; border-left: 4px solid var(--muted); background: rgba(255,255,255,0.02); }
+  .verdict-card.true { border-left-color: var(--true); }
+  .verdict-card.sub-true { border-left-color: var(--sub-true); }
+  .verdict-card.false { border-left-color: var(--false); }
+  .verdict-card.misleading { border-left-color: var(--misleading); }
+  .verdict-card.unverifiable { border-left-color: var(--unverifiable); }
+  .verdict-card.pending { border-left-color: var(--accent); opacity: 0.7; }
+  .verdict-card .claim { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+  .verdict-card .label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+  .verdict-card .label.true { color: var(--true); }
+  .verdict-card .label.false { color: var(--false); }
+  .verdict-card .label.misleading { color: var(--misleading); }
+  .verdict-card .label.sub-true { color: var(--sub-true); }
+  .verdict-card .label.unverifiable, .verdict-card .label.pending { color: var(--accent); }
+  .verdict-card .explanation { font-size: 13px; color: var(--text); margin-top: 6px; line-height: 1.45; }
+  .verdict-card .sources { margin-top: 8px; }
+  .verdict-card .sources a { font-size: 12px; color: var(--accent); text-decoration: none; display: block; margin-top: 2px; }
+  .verdict-card .sources a:hover { text-decoration: underline; }
+  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 40px 0; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"><span class="dot"></span>InTruth FactCheck Engine</h1>
+  <div class="controls">
+    <span class="status" id="status">connecting…</span>
+    <button id="startBtn" class="primary">▶ Start capture</button>
+    <button id="stopBtn" class="danger" disabled>■ Stop</button>
+  </div>
+</header>
+<div class="layout">
+  <section class="panel">
+    <h2>Live transcript</h2>
+    <div class="feed" id="transcripts"><div class="empty">No speech captured yet. Start capture and play audio or speak.</div></div>
+  </section>
+  <section class="panel">
+    <h2>Fact-check verdicts</h2>
+    <div class="feed" id="verdicts"><div class="empty">Verdicts will appear here (M2).</div></div>
+  </section>
+</div>
+
+<script>
+const transcriptsEl = document.getElementById('transcripts');
+const verdictsEl = document.getElementById('verdicts');
+const statusEl = document.getElementById('status');
+const titleEl = document.getElementById('title');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+function clearEmpty(el) {
+  const empty = el.querySelector('.empty');
+  if (empty) empty.remove();
+}
+
+function fmtTs(ts) { return new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+
+function labelClass(label) {
+  const l = (label||'').toLowerCase().replace(/\s+/g,'-');
+  return ['true','substantially-true','sub-true','false','misleading','unverifiable','pending'].includes(l) ? l : '';
+}
+
+function addTranscript(ev) {
+  clearEmpty(transcriptsEl);
+  const div = document.createElement('div');
+  div.className = 'transcript';
+  div.innerHTML = `<span class="src">${ev.source||'audio'}</span><span class="ts">${fmtTs(ev.ts)}</span>${escapeHtml(ev.text)}`;
+  transcriptsEl.prepend(div);
+  while (transcriptsEl.children.length > 100) transcriptsEl.lastChild.remove();
+}
+
+function addVerdict(ev) {
+  clearEmpty(verdictsEl);
+  // update existing pending card if same claim, else prepend new
+  let card = [...verdictsEl.querySelectorAll('.verdict-card')].find(c => c.dataset.claim === ev.claim);
+  if (!card) {
+    card = document.createElement('div');
+    card.className = 'verdict-card';
+    card.dataset.claim = ev.claim;
+    verdictsEl.prepend(card);
+  }
+  const lc = ev.type === 'pending_claim' ? 'pending' : labelClass(ev.verdict);
+  card.className = `verdict-card ${lc}`;
+  const label = ev.type === 'pending_claim' ? 'CHECKING…' : ev.verdict;
+  let html = `<div class="claim">${escapeHtml(ev.claim)}</div><div class="label ${lc}">${label}</div>`;
+  if (ev.explanation) html += `<div class="explanation">${escapeHtml(ev.explanation)}</div>`;
+  if (ev.sources && ev.sources.length) {
+    html += '<div class="sources">' + ev.sources.slice(0,4).map(u => `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">${escapeHtml(new URL(u).hostname)}</a>`).join('') + '</div>';
+  }
+  card.innerHTML = html;
+}
+
+function dropVerdict(ev) {
+  const card = [...verdictsEl.querySelectorAll('.verdict-card')].find(c => c.dataset.claim === ev.claim);
+  if (card) card.remove();
+  if (!verdictsEl.children.length) verdictsEl.innerHTML = '<div class="empty">Verdicts will appear here (M2).</div>';
+}
+
+function setStatus(ev) {
+  if (ev.capturing) { titleEl.classList.add('recording'); statusEl.textContent = `● recording (${(ev.sources||[]).join(', ')})`; }
+  else { titleEl.classList.remove('recording'); statusEl.textContent = 'idle'; }
+}
+
+function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// WebSocket event subscription
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws/events`);
+  ws.onopen = () => { statusEl.textContent = 'connected (idle)'; };
+  ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    switch (ev.type) {
+      case 'transcript': addTranscript(ev); break;
+      case 'pending_claim': addVerdict(ev); break;
+      case 'verdict': addVerdict(ev); break;
+      case 'drop_verdict': dropVerdict(ev); break;
+      case 'status': setStatus(ev); refreshButtons(ev.capturing); break;
+    }
+  };
+  ws.onclose = () => { statusEl.textContent = 'reconnecting…'; setTimeout(connect, 2000); };
+}
+connect();
+
+function refreshButtons(capturing) {
+  startBtn.disabled = capturing;
+  stopBtn.disabled = !capturing;
+}
+startBtn.onclick = async () => { startBtn.disabled = true; await fetch('/capture/start', {method:'POST'}); };
+stopBtn.onclick = async () => { stopBtn.disabled = true; await fetch('/capture/stop', {method:'POST'}); };
+</script>
+</body>
+</html>
