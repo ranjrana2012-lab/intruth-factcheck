@@ -55,21 +55,45 @@ class EngineState:
         self.active_clients: int = 0  # external audio-sending clients
         self.sources: set[str] = set()
         self.capturing: bool = False
+        # M2: per-source claim pipelines (window + verify). Lazy-initialized.
+        self.windows: dict[str, "object"] = {}
+        self.verify: dict[str, "object"] = {}
 
 
 state = EngineState()
 
 
+def _get_pipeline(source: str, language: str = "en"):
+    """Get-or-create the (SentenceWindow, VerifyPipeline) for an audio source."""
+    from .claims import SentenceWindow
+    from .claims.verify import VerifyPipeline
+
+    if source not in state.windows:
+        state.windows[source] = SentenceWindow()
+    if source not in state.verify:
+        state.verify[source] = VerifyPipeline(source=source, language=language)
+    return state.windows[source], state.verify[source]
+
+
 async def on_transcript(seg: TranscriptSegment, source: str = "desktop_audio") -> None:
     """Callback when Whisper emits a finalized segment.
 
-    In M1: publish a transcript event. In M2: this is also where Presidio → claim
-    windowing → dedup → verify pipeline hooks in.
+    Publishes the transcript, then feeds it into the per-source sentence window. When the
+    window fills, the verify pipeline runs (extract → dedup → retrieve → synthesize → verdict).
     """
     event = TranscriptEvent(text=seg.text, source=source)  # type: ignore[arg-type]
     log.info("transcript [%s]: %s", source, seg.text)
     await bus.publish(event)
-    # M2 hook: await claims_pipeline.on_transcript(seg, source)
+
+    # ── M2: claim windowing + verify ────────────────────────────────────────
+    try:
+        window, verify = _get_pipeline(source)
+        snapshots = window.feed(seg.text)
+        for snap in snapshots:
+            # Run verify in the background — don't block ASR transcription
+            asyncio.create_task(verify.process_window(snap))
+    except Exception:
+        log.debug("verify pipeline not available yet (deps missing?)", exc_info=True)
 
 
 # ─── Desktop capture lifecycle (engine's own WASAPI loopback) ────────────────
@@ -135,6 +159,12 @@ async def stop_desktop_capture() -> None:
 async def lifespan(app: FastAPI):
     settings = get_settings()
     log.info("InTruth engine starting on %s:%s", settings.engine_host, settings.engine_port)
+    # Init SQLite store (claims + verdicts only)
+    try:
+        from .store import init_db
+        await init_db()
+    except Exception:
+        log.warning("sqlite store unavailable (pip install aiosqlite) — verdicts won't persist")
     yield
     await stop_desktop_capture()
     log.info("InTruth engine stopped")

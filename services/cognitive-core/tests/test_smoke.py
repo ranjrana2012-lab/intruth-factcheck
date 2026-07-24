@@ -11,7 +11,8 @@ import numpy as np
 import pytest
 
 # Make repo root importable for `adapters` and `intruth_engine`
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# tests/ → cognitive-core → services → REPO_ROOT
+REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 
